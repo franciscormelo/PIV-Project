@@ -1,0 +1,197 @@
+function [objects, cam2toW, objects1] = track3D_part2( im1, im2, cam_params )
+% CODE TO GET cam2toW
+K_rgb = cam_params.Krgb;
+Kd = cam_params.Kdepth;
+R = cam_params.R;
+T = cam_params.T;
+
+Ia = imread(im1(1).rgb);
+Ib = imread(im2(1).rgb);
+load(im1(1).depth)
+dep1 = depth_array;
+load(im2(1).depth)
+dep2 = depth_array;
+
+[R21, T21] = camera2to1(Ia, Ib, dep1, dep2, Kd, K_rgb, R, T);
+
+cam2toW.R = R21;
+cam2toW.T = T21;
+
+
+[sortedrgb1, imgs , imgsd ] = load_gray(im1);  %load depth files and imahe while converting to gray scale
+
+[bggray,bgdepth] = background(imgs , imgsd); %obtain backgrounds
+
+[label1,numObj1]=labelling(imgs,imgsd,bggray,bgdepth);
+
+[Frame1]=pointclouds(label1,numObj1,sortedrgb1,imgs,imgsd,cam_params);
+
+clear sortedrgb
+clear imgs
+clear imgsd
+clear bggray
+clear bgdepth
+clear numObj
+clear Frame
+
+[sortedrgb2, imgs , imgsd ] = load_gray(im2);  %load depth files and imahe while converting to gray scale
+
+[bggray,bgdepth] = background(imgs , imgsd); %obtain backgrounds
+
+[label2,numObj2]=labelling(imgs,imgsd,bggray,bgdepth);
+
+[Frame2]=pointclouds_TRY(label2,numObj2,sortedrgb2,imgs,imgsd,cam_params, cam2toW);
+
+[joinedFrame] = joinpc(Frame1,Frame2);
+
+
+
+
+
+[Frame]=hungarian(joinedFrame,label1,sortedrgb1);
+
+[ objects1 ] = output(Frame);
+
+objs1=length(objects1);
+x = {objects1().X};
+y = {objects1().Y};
+z = {objects1().Z};
+fontsize=20;
+close all
+
+%for i = 1:objs1                     %iterate trough objects
+for i=1:length(objects1)
+    fprintf('Object %d apears in %d frames\n)',i, length(objects1(i).frames_tracked ));
+         %print number of frames per object
+end
+
+i=1;
+while i~=0
+i = input('Object to track? (0 to exit)');
+
+if i==-1
+    y=1;
+end
+close all
+    for j = 1:length(objects1(i).frames_tracked) %iterate trough frames where current object appears
+        
+        % mPoints = [x(j,:); y(j,:); z(j,:)]';
+        %XYZ21 = [x2(j,:); y2(j,:); z2(j,:)]';
+        
+        %j is frame number
+        hold on
+        
+        x3d=mean(x{i}(j,:));
+        y3d=mean(y{i}(j,:));
+        z3d=mean(z{i}(j,:));
+        
+        plot3(x3d,y3d,z3d);
+        
+        text(x3d,y3d,z3d,num2str(i),'Color','red','FontSize',fontsize);   %red camera 1
+        
+        
+        array_obj_numbers=[Frame(objects1(i).frames_tracked(j)).object().id];  %%find the array of objects in this frame
+        index_obj=find(array_obj_numbers==i);                                   %find the positon corresponing to current oject.
+        
+        pc=Frame(objects1(i).frames_tracked(j)).object(index_obj).pco;
+        pcshow(pc);
+        
+    
+    end
+end
+%end
+
+
+%{
+%%%%%%
+
+[Frame]=hungarian(Frame,label,sortedrgb);
+
+[ objects2 ] = output(Frame);
+
+
+% CODE TO MERGE BOXES - SEPERATLY (AVERAGE BOX)
+x = {objects1().X};
+y = {objects1().Y};
+z = {objects1().Z};
+x2 = {objects2().X};
+y2 = {objects2().Y};
+z2 = {objects2().Z};
+
+fontsize=20;
+close all
+objs1=length(objects1);
+objs2=length(objects2);
+
+
+
+
+
+for i = 1:objs2                      %iterate trough objects
+    for j = 1:length(objects2(i).frames_tracked) %iterate trough frames
+        
+        % mPoints = [x(j,:); y(j,:); z(j,:)]';
+        %XYZ21 = [x2(j,:); y2(j,:); z2(j,:)]';
+        
+        %j is frame number
+        hold on
+        
+        
+        x3d=mean(x2{i}(j,:));
+        y3d=mean(y2{i}(j,:));
+        z3d=mean(z2{i}(j,:));
+        
+        plot3(x3d,y3d,z3d);
+        
+        text(x3d,y3d,z3d,num2str(i),'Color','black','FontSize',fontsize);   %black camera2
+        
+        array_obj_numbers=[Frame(objects2(i).frames_tracked(j)).object().id];
+        index_obj=find(array_obj_numbers==i);
+        
+        pc=Frame(objects2(i).frames_tracked(j)).object(index_obj).pco;
+        pcshow(pc);
+        
+        
+        %   mean_value = 0.5*(XYZ21' + mPoints');
+        
+        %  objects(i).X(j,:) = mean_value(1,:);
+        % objects(i).Y(j,:) = mean_value(2,:);
+        % objects(i).Z(j,:) = mean_value(3,:);
+    end
+    %objects(i).frames_tracked = objects2(i).frames_tracked;
+end
+
+
+% for i = 1:length(objects2)
+%     for j = 1:length(objects2(i).frames_tracked)
+%
+%     mPoints = [x(j,:); y(j,:); z(j,:)]';
+%     XYZ21 = mPoints*cam2toW.R + ones(length(mPoints),1)*cam2toW.T';
+%     mean_value = 0.5*(XYZ21' + mPoints');
+%
+%     objects(i).X(j,:) = mean_value(1,:);
+%     objects(i).Y(j,:) = mean_value(2,:);
+%     objects(i).Z(j,:) = mean_value(3,:);
+%     end
+%     objects(i).frames_tracked = objects2(i).frames_tracked;
+% end
+
+
+% CODE TO MERGE 2 POINTCLOUDS AND SEE THEM - EXAMPLE
+
+% xyz21=xyz_2*cam2toW.R+ones(length(xyz_2),1)*cam2toW.T';                   %cam2toW.T might not be transposed
+% pc1=pointCloud(xyz_1,'Color',reshape(rgbd_1,[480*640 3]));
+% pc2=pointCloud(xyz21,'Color',reshape(rgbd_2,[480*640 3]));
+% figure(1);clf; showPointCloud(pc1); view(0,-90);
+% figure(2);clf; showPointCloud(pc2); view(0,-90);
+% figure;pcshow(pcmerge(pc1,pc2,0.001));
+% view(0,-90);
+
+% load lab1JPC
+% cam1toW.R=R1;
+% cam1toW.T=T1;
+% cam2toW.R=R2;
+% cam2toW.T=T2;
+end
+
+%}
